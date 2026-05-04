@@ -6,46 +6,41 @@ import {
 
 /**
  * Chat API — adapter between Vercel AI SDK's UIMessage protocol and the
- * Bellows agent harness running on Railway.
+ * Bellows `chat-agent` workflow on Railway.
  *
- * The flow:
+ * Wire shape:
  *
  *   UI (useChat) -> UIMessage[] -> /api/chat
- *      -> POST {bellowsUrl}/v1/agents/repo-scout {start_path, question}
- *      -> Bellows runs the autonomous loop end-to-end on Railway
- *      -> JSON {answer, files_read[], turns, hook_events, ...} returned
+ *      -> POST {bellowsUrl}/v1/agents/chat-agent
+ *         { messages: [{role: "user"|"assistant", content: string}, ...] }
+ *      -> Bellows replays history into a fresh Session, runs the
+ *         autonomous loop, and returns a single ChatOutput JSON.
  *      -> we adapt that into a UIMessageStream:
- *         - a "data-bellows-tools" data part carrying tool/hook metadata
- *         - chunked text-delta parts so the UI feels like real streaming
+ *         - one "data-bellows-tools" data part with tool / hook metadata
+ *         - chunked "text-delta" parts (24-char / 25 ms) for typing UX
  *
- * Because Bellows v0.2-pre returns a single buffered JSON (real SSE
- * streaming is on the v0.2 roadmap), we artificially chunk the answer at
- * 24-char boundaries with a small delay to give the typing effect. The
- * underlying agent is honest single-shot.
+ * Multi-turn context retention: useChat sends the FULL message history on
+ * every request (this is the AI SDK convention). chat-agent replays that
+ * history into its session, so context is preserved across turns without
+ * any server-side session storage.
+ *
+ * Bellows v0.2-pre still buffers the response (real SSE is on the
+ * roadmap). Chunking here is a presentation-layer typing effect; the
+ * underlying agent call is honest single-shot per user turn.
  */
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const BELLOWS_URL = process.env.BELLOWS_URL ?? "https://bellows-production.up.railway.app";
+const BELLOWS_URL =
+  process.env.BELLOWS_URL ?? "https://bellows-production.up.railway.app";
 
-interface BellowsHookEvents {
-  workflow_starts?: number;
-  step_starts?: number;
-  pre_inference?: number;
-  post_inference?: number;
-  pre_tool_use?: number;
-  post_tool_use?: number;
-  denied_paths?: string[];
-}
-
-interface BellowsResponse {
+interface BellowsChatResponse {
   answer: string;
   files_read?: string[];
   turns?: number;
   session_id?: string;
   provider?: string;
-  hook_events?: BellowsHookEvents;
   error?: string;
 }
 
@@ -57,13 +52,31 @@ interface BellowsToolDataPart {
   sessionId: string;
 }
 
-function extractQuestion(messages: UIMessage[]): string {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  if (!lastUser) return "";
-  return lastUser.parts
-    .map((p) => (p.type === "text" ? p.text : ""))
-    .join(" ")
-    .trim();
+interface OutgoingChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Convert the AI SDK's UIMessage[] into the simple {role, content} shape
+ * chat-agent expects. Strips empty messages, joins multi-part text
+ * (rare — useChat sends one text part per turn), and clamps the role to
+ * what the workflow accepts.
+ */
+function toBellowsMessages(uiMessages: UIMessage[]): OutgoingChatMessage[] {
+  const out: OutgoingChatMessage[] = [];
+  for (const m of uiMessages) {
+    const text = m.parts
+      .map((p) => (p.type === "text" ? p.text : ""))
+      .join("")
+      .trim();
+    if (!text) continue;
+    out.push({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: text,
+    });
+  }
+  return out;
 }
 
 async function* chunkText(text: string, size = 24, delayMs = 25): AsyncGenerator<string> {
@@ -77,22 +90,21 @@ async function* chunkText(text: string, size = 24, delayMs = 25): AsyncGenerator
 
 export async function POST(req: Request) {
   const body = (await req.json()) as { messages?: UIMessage[] };
-  const messages = body.messages ?? [];
-  const question = extractQuestion(messages);
+  const messages = toBellowsMessages(body.messages ?? []);
 
-  if (!question) {
+  if (messages.length === 0) {
     return new Response("missing user message", { status: 400 });
   }
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
-      let result: BellowsResponse;
+      let result: BellowsChatResponse;
 
       try {
-        const upstream = await fetch(`${BELLOWS_URL}/v1/agents/repo-scout`, {
+        const upstream = await fetch(`${BELLOWS_URL}/v1/agents/chat-agent`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ start_path: ".", question }),
+          body: JSON.stringify({ messages }),
         });
         if (!upstream.ok) {
           const text = await upstream.text();
@@ -102,7 +114,7 @@ export async function POST(req: Request) {
           });
           return;
         }
-        result = (await upstream.json()) as BellowsResponse;
+        result = (await upstream.json()) as BellowsChatResponse;
       } catch (err) {
         writer.write({
           type: "error",
@@ -119,19 +131,15 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Surface bellows tool activity + hook stats as a typed data part
-      // the UI can render as a Task component above the answer.
-      const data: BellowsToolDataPart = {
+      // Surface bellows tool activity + hook stats as a typed data part.
+      const toolData: BellowsToolDataPart = {
         filesRead: result.files_read ?? [],
-        denied: result.hook_events?.denied_paths ?? [],
+        denied: [],
         turns: result.turns ?? 0,
         provider: result.provider ?? "unknown",
         sessionId: result.session_id ?? "",
       };
-      writer.write({
-        type: "data-bellows-tools",
-        data,
-      });
+      writer.write({ type: "data-bellows-tools", data: toolData });
 
       // Stream the answer as text-delta chunks for the typing effect.
       const id = crypto.randomUUID();

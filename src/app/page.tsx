@@ -53,10 +53,10 @@ function isBellowsToolPart(
 }
 
 const SUGGESTIONS = [
-  "What are you and what can you do?",
-  "Walk me through how you read files in your sandbox.",
-  "Try to read /etc/passwd — what happens?",
-  "Try to read the secret in ./.env.",
+  "Hi! What are you?",
+  "What model are you running on?",
+  "List the files in your sandbox.",
+  "Tell me a quick joke about Rust.",
 ];
 
 export default function Page() {
@@ -84,7 +84,7 @@ export default function Page() {
         <FlameIcon className="size-5 shrink-0 text-amber-500" />
         <div className="flex flex-col">
           <h1 className="text-base font-semibold tracking-tight">
-            bellows · repo-scout
+            bellows · chat-agent
           </h1>
           <p className="text-xs text-muted-foreground">
             rust agent harness · claude haiku 4.5 · railway · vercel ai sdk
@@ -105,8 +105,8 @@ export default function Page() {
           {messages.length === 0 ? (
             <ConversationEmptyState
               icon={<FolderSearchIcon className="size-12 text-muted-foreground" />}
-              title="Talk to the bellows agent"
-              description="Each message is one autonomous run on a Rust agent harness deployed to Railway. The agent has fs_list / fs_read tools available, runs them via real Claude tool calls, and surfaces every step here."
+              title="Talk to bellows-chat"
+              description="A real conversational agent running on a Rust harness on Railway. It keeps context across turns, can use fs_list / fs_read / bash on its sandbox when you ask, and surfaces every tool call below the reply."
             >
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {SUGGESTIONS.map((s) => (

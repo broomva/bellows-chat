@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "bellows · repo-scout",
+  title: "bellows · chat-agent",
   description:
-    "Talk to a Rust agent harness running on Railway. Real Claude. Real tool calls.",
+    "Talk to a Rust agent harness running on Railway. Real Claude. Multi-turn. Tool-aware.",
 };
 
 export default function RootLayout({
