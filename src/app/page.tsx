@@ -33,8 +33,16 @@ import {
   TaskTrigger,
 } from "@/components/ai-elements/task";
 
+interface BellowsToolUse {
+  name: string;
+  label: string;
+  denied: boolean;
+}
+
 interface BellowsToolDataPart {
   filesRead: string[];
+  /** Every tool call (name + arg label + denied flag). */
+  tools?: BellowsToolUse[];
   denied: string[];
   turns: number;
   provider: string;
@@ -136,10 +144,20 @@ export default function Page() {
                     }
 
                     if (isBellowsToolPart(part)) {
-                      const { filesRead, denied, turns, provider, sessionId } =
+                      const { tools, filesRead, turns, provider, sessionId } =
                         part.data;
-                      const events = filesRead.length + denied.length;
-                      const summary = `${turns} model turns · ${events} tool ${
+                      // Prefer the new tools[] array; fall back to filesRead
+                      // for older deployments that only emit the legacy field.
+                      const allTools: BellowsToolUse[] =
+                        tools && tools.length > 0
+                          ? tools
+                          : filesRead.map((f) => ({
+                              name: "fs_read",
+                              label: f,
+                              denied: false,
+                            }));
+                      const events = allTools.length;
+                      const summary = `${turns} model turn${turns === 1 ? "" : "s"} · ${events} tool ${
                         events === 1 ? "call" : "calls"
                       } · ${provider}`;
 
@@ -147,24 +165,31 @@ export default function Page() {
                         <Task key={key} className="mb-2 w-full" defaultOpen>
                           <TaskTrigger title={summary} />
                           <TaskContent>
-                            {filesRead.map((f) => (
-                              <TaskItem key={`r-${f}`}>
-                                <span className="text-emerald-600 dark:text-emerald-400">
-                                  read
-                                </span>{" "}
-                                <TaskItemFile>{f}</TaskItemFile>
-                              </TaskItem>
-                            ))}
-                            {denied.map((f) => (
-                              <TaskItem key={`d-${f}`}>
-                                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                  <ShieldIcon className="size-3" />
-                                  denied
-                                </span>{" "}
-                                <TaskItemFile>{f}</TaskItemFile>{" "}
+                            {allTools.length === 0 ? (
+                              <TaskItem>
                                 <span className="text-muted-foreground">
-                                  (path-policy hook)
+                                  (no tools used this turn)
                                 </span>
+                              </TaskItem>
+                            ) : null}
+                            {allTools.map((t, ti) => (
+                              <TaskItem key={`t-${ti}-${t.name}-${t.label}`}>
+                                {t.denied ? (
+                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                                    <ShieldIcon className="size-3" />
+                                    denied
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-600 dark:text-emerald-400">
+                                    {t.name}
+                                  </span>
+                                )}{" "}
+                                <TaskItemFile>{t.label}</TaskItemFile>
+                                {t.denied ? (
+                                  <span className="ml-1 text-muted-foreground">
+                                    {t.name} blocked by allow-deny hook
+                                  </span>
+                                ) : null}
                               </TaskItem>
                             ))}
                             {sessionId ? (

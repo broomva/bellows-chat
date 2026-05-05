@@ -35,9 +35,17 @@ export const maxDuration = 90;
 const BELLOWS_URL =
   process.env.BELLOWS_URL ?? "https://bellows-production.up.railway.app";
 
+interface BellowsToolUse {
+  name: string;
+  label: string;
+  denied: boolean;
+}
+
 interface BellowsChatResponse {
   answer: string;
   files_read?: string[];
+  /** New in v0.2-pre-fix2: every tool call (name, label, denied flag). */
+  tools?: BellowsToolUse[];
   turns?: number;
   session_id?: string;
   provider?: string;
@@ -45,7 +53,11 @@ interface BellowsChatResponse {
 }
 
 interface BellowsToolDataPart {
+  /** Backwards-compat: paths the agent opened with `fs_read`. */
   filesRead: string[];
+  /** Every tool call with name + label + denied flag (full surface). */
+  tools: BellowsToolUse[];
+  /** Convenience: subset of `tools` where `denied === true`. */
   denied: string[];
   turns: number;
   provider: string;
@@ -131,10 +143,13 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Surface bellows tool activity + hook stats as a typed data part.
+      const allTools = result.tools ?? [];
       const toolData: BellowsToolDataPart = {
         filesRead: result.files_read ?? [],
-        denied: [],
+        tools: allTools,
+        denied: allTools
+          .filter((t) => t.denied)
+          .map((t) => `${t.name}: ${t.label}`),
         turns: result.turns ?? 0,
         provider: result.provider ?? "unknown",
         sessionId: result.session_id ?? "",
