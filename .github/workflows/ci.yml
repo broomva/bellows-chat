@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The /api/chat route reads BELLOWS_URL at module scope, so `next build`
+  # needs it set even though the build never actually hits the upstream.
+  # Production value matches what's deployed on Vercel.
+  BELLOWS_URL: https://bellows-production.up.railway.app
+
+jobs:
+  typecheck:
+    name: typecheck (tsc --noEmit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3"
+
+      - name: Cache Bun install dir
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bellows-chat/bun.lock', 'bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: bun install (frozen lockfile)
+        # --frozen-lockfile mirrors CI semantics elsewhere — we want the lockfile
+        # to be authoritative, not regenerated. Bun calls this --frozen-lockfile
+        # but accepts it on `install` directly.
+        run: bun install --frozen-lockfile
+
+      - name: bunx tsc --noEmit
+        run: bunx tsc --noEmit
+
+  build:
+    name: build (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3"
+
+      - name: Cache Bun install dir
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bellows-chat/bun.lock', 'bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      # .next caches between runs cut Turbopack's cold-start by 40–70%.
+      # Key on package.json + bun.lock + the SHA so changes always get a fresh
+      # build artifact while still benefitting from the persistent .next/cache.
+      - name: Cache .next
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('package.json', 'bun.lock') }}-
+            nextjs-${{ runner.os }}-
+
+      - name: bun install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: bun run build
+        run: bun run build

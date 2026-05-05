@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# bellows-chat
 
-## Getting Started
+[![CI](https://github.com/broomva/bellows-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/broomva/bellows-chat/actions/workflows/ci.yml)
 
-First, run the development server:
+Chat UI for the [Bellows](https://github.com/broomva/bellows) agent harness.
+A thin Next.js front-end that streams from a Bellows runtime deployed on
+Railway and renders responses with the AI Elements component set.
+
+- **Live**: https://bellows-chat.vercel.app
+- **Backend**: https://bellows-production.up.railway.app (configurable via `BELLOWS_URL`)
+
+## Stack
+
+- Next.js 16 (App Router, Turbopack)
+- AI SDK 6 + AI Elements (`@ai-sdk/react`, `streamdown`)
+- React 19, TypeScript 5
+- Tailwind CSS v4
+- Bun 1.3 for install + scripts
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
+bun run dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+By default the chat route proxies to the production Bellows URL. Override
+with a local Bellows server:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+BELLOWS_URL=http://localhost:3548 bun run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Build
 
-## Learn More
+```bash
+bunx tsc --noEmit      # typecheck (CI gate)
+bun run build          # next build (CI gate)
+```
 
-To learn more about Next.js, take a look at the following resources:
+`BELLOWS_URL` must be set at build time because the `/api/chat` route reads
+it at module load.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pushed to Vercel. Set `BELLOWS_URL` in the Vercel project env to point at
+the corresponding Bellows deployment.
